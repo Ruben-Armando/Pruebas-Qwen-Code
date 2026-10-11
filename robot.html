@@ -507,16 +507,28 @@
             // =============== HUD (Babylon.GUI, Sección 9) ===================
             const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("HUD");
 
-            const panel = new BABYLON.GUI.StackPanel();
-            panel.width = "260px";
+            // Contenedor Rectangle anclado a ARRIBA-DERECHA.
+            // Nota: un StackPanel con horizontalAlignment="right" alinea el panel
+            // como bloque pero sus hijos (TextBlock stretch) quedan a la izquierda
+            // dentro del ancho de 260px, lo que hacía parecer el HUD centrado.
+            // Con un Rectangle + paddingRight el contenido se apoya al borde derecho.
+            // Valores numéricos porque el bundle CDN no exporta los enums GUI
+            // (HORIZONTAL_ALIGNMENT_RIGHT = 2, VERTICAL_ALIGNMENT_TOP = 0).
+            const panel = new BABYLON.GUI.Rectangle("hudPanel");
+            panel.width = "300px";
+            panel.height = "250px";
             panel.paddingTop = "10px";
-            // FIX pantalla negra: en el bundle CDN actual los enums
-            // HorizontalAlignment/VerticalAlignment no se exportan bajo BABYLON.GUI
-            // (lanzaban TypeError y abortaban createScene). Se usan valores numéricos:
-            // HORIZONTAL_ALIGNMENT_RIGHT = 2, VERTICAL_ALIGNMENT_TOP = 0.
+            panel.paddingRight = "10px";
+            panel.thickness = 0;      // sin borde visible
+            panel.background = "rgba(0,0,0,0.45)"; // caja tenue tras las líneas
             panel.horizontalAlignment = 2; // Right
             panel.verticalAlignment = 0;   // Top
             ui.addControl(panel);
+
+            const stack = new BABYLON.GUI.StackPanel();
+            stack.width = "280px";
+            stack.marginLeft = "auto"; // empuja el stack hacia la derecha
+            panel.addControl(stack);
 
             const jointNames = ["J1 Base", "J2 Hombro", "J3 Codo", "J4 Muñeca 1",
                                 "J5 Muñeca 2", "J6 Muñeca 3"];
@@ -529,7 +541,7 @@
                 t.background = "rgba(0,0,0,0.55)";
                 t.paddingLeft = "8px";
                 t.height = "24px";
-                panel.addControl(t);
+                stack.addControl(t);
                 hudLines.push(t);
             }
             const gripLine = new BABYLON.GUI.TextBlock();
@@ -539,7 +551,7 @@
             gripLine.background = "rgba(0,0,0,0.55)";
             gripLine.paddingLeft = "8px";
             gripLine.height = "24px";
-            panel.addControl(gripLine);
+            stack.addControl(gripLine);
 
             const statusLine = new BABYLON.GUI.TextBlock();
             statusLine.color = "#7fd4ff";
@@ -548,7 +560,7 @@
             statusLine.background = "rgba(0,0,0,0.55)";
             statusLine.paddingLeft = "8px";
             statusLine.height = "22px";
-            panel.addControl(statusLine);
+            stack.addControl(statusLine);
 
             let statusTimer = null;
             function hudStatus(msg) {
