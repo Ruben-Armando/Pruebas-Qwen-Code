@@ -510,8 +510,12 @@
             const panel = new BABYLON.GUI.StackPanel();
             panel.width = "260px";
             panel.paddingTop = "10px";
-            panel.horizontalAlignment = BABYLON.GUI.HorizontalAlignment.Right;
-            panel.verticalAlignment = BABYLON.GUI.VerticalAlignment.Top;
+            // FIX pantalla negra: en el bundle CDN actual los enums
+            // HorizontalAlignment/VerticalAlignment no se exportan bajo BABYLON.GUI
+            // (lanzaban TypeError y abortaban createScene). Se usan valores numéricos:
+            // HORIZONTAL_ALIGNMENT_RIGHT = 2, VERTICAL_ALIGNMENT_TOP = 0.
+            panel.horizontalAlignment = 2; // Right
+            panel.verticalAlignment = 0;   // Top
             ui.addControl(panel);
 
             const jointNames = ["J1 Base", "J2 Hombro", "J3 Codo", "J4 Muñeca 1",
@@ -660,6 +664,8 @@
 
         // ---------------------------------------------------------------------
         const scene = createScene();
+        window.scene = scene;   // expuesto para depuración/pruebas
+        window.engine = engine;
         engine.runRenderLoop(() => scene.render());
         window.addEventListener("resize", () => engine.resize());
     </script>
