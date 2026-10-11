@@ -507,27 +507,30 @@
             // =============== HUD (Babylon.GUI, Sección 9) ===================
             const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("HUD");
 
-            // Contenedor Rectangle anclado a ARRIBA-DERECHA.
-            // Nota: un StackPanel con horizontalAlignment="right" alinea el panel
-            // como bloque pero sus hijos (TextBlock stretch) quedan a la izquierda
-            // dentro del ancho de 260px, lo que hacía parecer el HUD centrado.
-            // Con un Rectangle + paddingRight el contenido se apoya al borde derecho.
-            // Valores numéricos porque el bundle CDN no exporta los enums GUI
-            // (HORIZONTAL_ALIGNMENT_RIGHT = 2, VERTICAL_ALIGNMENT_TOP = 0).
-            const panel = new BABYLON.GUI.Rectangle("hudPanel");
+            // ============ Contenedor anclado a ARRIBA-DERECHA ================
+            // RAÍZ DEL BUG ANTERIOR: se usó horizontalAlignment = 2 asumiendo
+            // que RIGHT era 2 (orden LEFT,CENTER,RIGHT). Pero en el bundle CDN
+            // de Babylon.GUI los enums son LEFT=0, RIGHT=1, CENTER=2.
+            // Por eso el valor 2 equivalía a CENTER y el HUD seguía apareciendo
+            // arriba-centro. Se fija con RIGHT=1 / TOP=0 y además se usa la
+            // propiedad "right" del control como respaldo redundante.
+            const panel = new BABYLON.GUI.Container("hudPanel");
             panel.width = "300px";
-            panel.height = "250px";
-            panel.paddingTop = "10px";
+            panel.height = "200px";
+            panel.paddingTop = "4px";
             panel.paddingRight = "10px";
-            panel.thickness = 0;      // sin borde visible
-            panel.background = "rgba(0,0,0,0.45)"; // caja tenue tras las líneas
-            panel.horizontalAlignment = 2; // Right
-            panel.verticalAlignment = 0;   // Top
+            panel.thickness = 0;                  // sin borde visible
+            panel.background = "rgba(0,0,0,0.45)";// caja tenue tras las líneas
+            panel.isPointerTransparent = true;    // no interfiere con el ratón
+            panel.horizontalAlignment = 1;        // RIGHT  (¡no 2, que es CENTER!)
+            panel.verticalAlignment = 0;          // TOP
+            panel.linkWithMesh(null);             // posición absoluta en pantalla
+            panel.left = "-310px";                // respaldo: 10px desde borde derecho
+            panel.top = "10px";                   // 10px desde el borde superior
             ui.addControl(panel);
 
             const stack = new BABYLON.GUI.StackPanel();
             stack.width = "280px";
-            stack.marginLeft = "auto"; // empuja el stack hacia la derecha
             panel.addControl(stack);
 
             const jointNames = ["J1 Base", "J2 Hombro", "J3 Codo", "J4 Muñeca 1",
