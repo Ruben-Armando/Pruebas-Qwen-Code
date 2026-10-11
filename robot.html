@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador 3D — Brazo Robótico 7 GDL (v2.1 Perfil Trapezoidal)</title>
+    <!-- Babylon.js Core + GUI (CDN) — según Robot_Indust_02_Perfil_Trapezoldal_Qwen.md -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #1a1a22;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            outline: none;
+            display: block;
+        }
+        /* Panel de instrucciones (HUD HTML superpuesto) */
+        #instructions {
+            position: absolute;
+            left: 12px;
+            bottom: 12px;
+            color: #e8e8f0;
+            background: rgba(10, 10, 16, 0.78);
+            border: 1px solid rgba(120, 200, 255, 0.35);
+            border-radius: 10px;
+            padding: 12px 16px;
+            font-size: 12.5px;
+            line-height: 1.55;
+            max-width: 420px;
+            pointer-events: none;
+            user-select: none;
+            z-index: 10;
+        }
+        #instructions h3 {
+            margin: 0 0 6px 0;
+            font-size: 14px;
+            color: #7fd4ff;
+        }
+        #instructions .cols { display: flex; gap: 18px; }
+        #instructions kbd {
+            background: #2b2b3a;
+            border: 1px solid #55556a;
+            border-bottom-width: 2px;
+            border-radius: 4px;
+            padding: 0 5px;
+            font-family: monospace;
+            font-size: 11.5px;
+            color: #ffd479;
+        }
+        #instructions .dim { color: #9aa0b5; }
+        #versionTag {
+            position: absolute;
+            right: 12px;
+            bottom: 10px;
+            color: #6f7690;
+            font-size: 11px;
+            z-index: 10;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+
+    <div id="instructions">
+        <h3>🤖 Brazo Robótico 7 GDL — Simulador v2.1</h3>
+        <div class="cols">
+            <div>
+                <b>Articulaciones</b><br>
+                <kbd>1</kbd> Base&nbsp;·&nbsp;<kbd>2</kbd> Hombro&nbsp;·&nbsp;<kbd>3</kbd> Codo<br>
+                <kbd>4</kbd> Muñeca 1&nbsp;·&nbsp;<kbd>5</kbd> Muñeca 2<br>
+                <kbd>6</kbd> Muñeca 3&nbsp;·&nbsp;<kbd>7</kbd> Pinza<br>
+                <span class="dim">Tecla + mover ratón (sin clic)<br>
+                Clic+arrastrar = orbitar cámara</span>
+            </div>
+            <div>
+                <b>Combinaciones</b><br>
+                <kbd>Z</kbd> J1+J2 · <kbd>X</kbd> J3<br>
+                <kbd>C</kbd> J4+J5 · <kbd>V</kbd> J6+Pinza<br>
+                <b>Velocidad</b><br>
+                <kbd>Shift</kbd> precisión ×0.25<br>
+                <kbd>Ctrl</kbd> rápido ×2.0<br>
+                <b>Presets</b><br>
+                <kbd>F1</kbd>/<kbd>F2</kbd>/<kbd>F3</kbd>/<kbd>F4</kbd> poses · <kbd>R</kbd> Home
+            </div>
+        </div>
+    </div>
+    <div id="versionTag">Babylon.js · Perfil trapezoidal (ACCEL 15 / VMAX 4 / DECEL 20)</div>
+
+    <script>
+        // =====================================================================
+        //  SIMULADOR 3D DE BRAZO ROBÓTICO 7 GDL — v2.1 (Perfil Trapezoidal)
+        //  Especificación: Robot_Indust_02_Perfil_Trapezoldal_Qwen.md
+        //  (prioridad absoluta sobre la propuesta general del proyecto)
+        // =====================================================================
+
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true, {
+            preserveDrawingBuffer: true,
+            stencil: true,
+            disableWebGL2: false
+        });
+
+        // ---------------------------------------------------------------------
+        // Textura procedural de madera de pino (Sección 7.4)
+        // DynamicTexture 512x512, base #d4a574, 80 vetas, 3 nudos radiales.
+        // ---------------------------------------------------------------------
+        function createPineWoodTexture(scene) {
+            const size = 512;
+            const tex = new BABYLON.DynamicTexture("pineWood", { width: size, height: size }, scene, true);
+            const ctx = tex.getContext();
+
+            // Color base: amarillo-marrón claro de pino
+            ctx.fillStyle = "#d4a574";
+            ctx.fillRect(0, 0, size, size);
+
+            // Función auxiliar para variar el tono
+            const shade = (base, delta) => {
+                const c = Math.max(0, Math.min(255, Math.round(base + delta)));
+                return c;
+            };
+
+            // 80 vetas verticales con ondulaciones y variaciones de tono
+            for (let i = 0; i < 80; i++) {
+                const x = Math.random() * size;
+                const w = 1 + Math.random() * 3;
+                const tone = -40 + Math.random() * 60; // variación de tono
+                const alpha = 0.08 + Math.random() * 0.22;
+                ctx.strokeStyle = `rgba(${shade(160, tone)},${shade(110, tone)},${shade(70, tone)},${alpha})`;
+                ctx.lineWidth = w;
+                ctx.beginPath();
+                let px = x;
+                ctx.moveTo(px, 0);
+                // ondulación senoidal a lo largo de la veta
+                const amp = 2 + Math.random() * 8;
+                const freq = 0.01 + Math.random() * 0.03;
+                const phase = Math.random() * Math.PI * 2;
+                for (let y = 0; y <= size; y += 8) {
+                    px = x + Math.sin(y * freq + phase) * amp;
+                    ctx.lineTo(px, y);
+                }
+                ctx.stroke();
+            }
+
+            // 3 nudos ocasionales con gradiente radial
+            for (let n = 0; n < 3; n++) {
+                const nx = 40 + Math.random() * (size - 80);
+                const ny = 40 + Math.random() * (size - 80);
+                const nr = 12 + Math.random() * 18;
+                const g = ctx.createRadialGradient(nx, ny, 1, nx, ny, nr);
+                g.addColorStop(0, "rgba(90, 55, 25, 0.85)");
+                g.addColorStop(0.4, "rgba(120, 80, 45, 0.55)");
+                g.addColorStop(1, "rgba(212, 165, 116, 0)");
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.arc(nx, ny, nr, 0, Math.PI * 2);
+                ctx.fill();
+                // anillos concéntricos del nudo
+                ctx.strokeStyle = "rgba(95, 60, 30, 0.35)";
+                ctx.lineWidth = 1;
+                for (let r = 4; r < nr; r += 4) {
+                    ctx.beginPath();
+                    ctx.ellipse(nx, ny, r, r * 0.8, 0.3, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+
+            tex.update();
+            tex.uScale = 4; // repetida 4x4
+            tex.vScale = 4;
+            return tex;
+        }
+
+        // ---------------------------------------------------------------------
+        // Escena principal
+        // ---------------------------------------------------------------------
+        const createScene = function () {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color4(0.07, 0.08, 0.12, 1.0);
+
+            // ------------------- Cámara (Sección 7.5) -----------------------
+            const camera = new BABYLON.ArcRotateCamera("camera",
+                -Math.PI / 2, Math.PI / 3, 12, new BABYLON.Vector3(0, 3, 0), scene);
+            camera.lowerRadiusLimit = 5;   // límites de zoom 5..25
+            camera.upperRadiusLimit = 25;
+            camera.wheelDeltaPercentage = 0.01;
+            camera.attachControl(canvas, true);
+
+            // ------------------- Iluminación (Sección 7.2) ------------------
+            const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
+            hemi.intensity = 0.9;
+            hemi.groundColor = new BABYLON.Color3(0.2, 0.2, 0.3);
+
+            const dir = new BABYLON.DirectionalLight("dir", new BABYLON.Vector3(-1, -2, -1), scene);
+            dir.intensity = 0.8;
+            dir.position = new BABYLON.Vector3(10, 20, 10);
+
+            // ------------------- Sombras (Sección 7.3) ----------------------
+            const shadowGen = new BABYLON.ShadowGenerator(1024, dir);
+            shadowGen.useBlurExponentialShadowMap = true;
+            shadowGen.blurKernel = 32;
+
+            // ------------------- Materiales (Sección 7.1) -------------------
+            // StandardMaterial por compatibilidad/visibilidad sin HDRI
+            const mkMat = (name, diffuse, specular) => {
+                const m = new BABYLON.StandardMaterial(name, scene);
+                m.diffuseColor = new BABYLON.Color3(...diffuse);
+                m.specularColor = new BABYLON.Color3(...specular);
+                return m;
+            };
+            const matOrange   = mkMat("matOrange",   [0.95, 0.50, 0.10], [0.3, 0.3, 0.3]);
+            const matDarkGrey = mkMat("matDarkGrey", [0.25, 0.25, 0.25], [0.4, 0.4, 0.4]);
+            const matMetal    = mkMat("matMetal",    [0.75, 0.75, 0.80], [0.8, 0.8, 0.8]);
+
+            // ------------------- Suelo de madera de pino --------------------
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 24, height: 24 }, scene);
+            const woodMat = new BABYLON.StandardMaterial("woodMat", scene);
+            woodMat.diffuseTexture = createPineWoodTexture(scene);
+            woodMat.specularColor = new BABYLON.Color3(0.12, 0.10, 0.08); // brillo bajo: barniz
+            ground.material = woodMat;
+            ground.receiveShadows = true;
+
+            // ================= CINEMÁTICA: 6 articulaciones + pinza =========
+            // Jerarquía: Mundo > J1(Y) > J2(Z) > J3(Z) > J4(X) > J5(Z) > J6(Y)
+            const D2R = BABYLON.Tools.ToRadians;
+
+            // --- J1: Base (rotación Y, ±170°) ---
+            const j1 = new BABYLON.TransformNode("J1_Base", scene);
+
+            const basePlinth = BABYLON.MeshBuilder.CreateCylinder("basePlinth",
+                { diameter: 2.2, height: 0.5 }, scene);
+            basePlinth.material = matDarkGrey;
+            basePlinth.parent = j1;
+            basePlinth.position.y = 0.25;
+            basePlinth.receiveShadows = true;
+
+            const baseColumn = BABYLON.MeshBuilder.CreateCylinder("baseColumn",
+                { diameterTop: 1.1, diameterBottom: 1.5, height: 1.2 }, scene);
+            baseColumn.material = matOrange;
+            baseColumn.parent = j1;
+            baseColumn.position.y = 1.1;
+
+            const jointCan = BABYLON.MeshBuilder.CreateCylinder("jointCan",
+                { diameter: 1.0, height: 0.6 }, scene);
+            jointCan.material = matMetal;
+            jointCan.parent = j1;
+            jointCan.position.y = 1.9;
+
+            // --- J2: Hombro (rotación Z, ±120°) ---
+            const j2 = new BABYLON.TransformNode("J2_Shoulder", scene);
+            j2.parent = j1;
+            j2.position.y = 2.1;
+
+            const shoulderBlock = BABYLON.MeshBuilder.CreateBox("shoulderBlock",
+                { width: 0.9, height: 1.0, depth: 0.9 }, scene);
+            shoulderBlock.material = matDarkGrey;
+            shoulderBlock.parent = j2;
+
+            const shoulderAxle = BABYLON.MeshBuilder.CreateCylinder("shoulderAxle",
+                { diameter: 0.55, height: 1.3 }, scene);
+            shoulderAxle.rotation.x = Math.PI / 2; // eje de giro en X local => rotación Z efectiva
+            shoulderAxle.material = matMetal;
+            shoulderAxle.parent = j2;
+
+            // Enlace del hombro hacia arriba (longitud 2.0) — J3 al final
+            const upperArm = BABYLON.MeshBuilder.CreateBox("upperArm",
+                { width: 0.55, height: 2.0, depth: 0.45 }, scene);
+            upperArm.material = matOrange;
+            upperArm.parent = j2;
+            upperArm.position.y = 1.0;
+
+            // --- J3: Codo (rotación Z, ±170°) ---
+            const j3 = new BABYLON.TransformNode("J3_Elbow", scene);
+            j3.parent = j2;
+            j3.position.y = 2.0;
+
+            const elbowJoint = BABYLON.MeshBuilder.CreateCylinder("elbowJoint",
+                { diameter: 0.62, height: 1.1 }, scene);
+            elbowJoint.rotation.x = Math.PI / 2;
+            elbowJoint.material = matMetal;
+            elbowJoint.parent = j3;
+
+            const foreArm = BABYLON.MeshBuilder.CreateBox("foreArm",
+                { width: 0.45, height: 1.8, depth: 0.38 }, scene);
+            foreArm.material = matOrange;
+            foreArm.parent = j3;
+            foreArm.position.y = 0.9;
+
+            // --- J4: Muñeca 1 (rotación X / roll, ±120°) ---
+            const j4 = new BABYLON.TransformNode("J4_Wrist1", scene);
+            j4.parent = j3;
+            j4.position.y = 1.8;
+
+            const wrist1Body = BABYLON.MeshBuilder.CreateCylinder("wrist1Body",
+                { diameterTop: 0.34, diameterBottom: 0.5, height: 0.55 }, scene);
+            wrist1Body.material = matMetal;
+            wrist1Body.parent = j4;
+            wrist1Body.position.y = 0.25;
+
+            // --- J5: Muñeca 2 (rotación Z / pitch, ±120°) ---
+            const j5 = new BABYLON.TransformNode("J5_Wrist2", scene);
+            j5.parent = j4;
+            j5.position.y = 0.55;
+
+            const wrist2Block = BABYLON.MeshBuilder.CreateBox("wrist2Block",
+                { width: 0.5, height: 0.42, depth: 0.42 }, scene);
+            wrist2Block.material = matDarkGrey;
+            wrist2Block.parent = j5;
+
+            const wrist2Axle = BABYLON.MeshBuilder.CreateCylinder("wrist2Axle",
+                { diameter: 0.3, height: 0.7 }, scene);
+            wrist2Axle.rotation.x = Math.PI / 2;
+            wrist2Axle.material = matMetal;
+            wrist2Axle.parent = j5;
+
+            // --- J6: Muñeca 3 (rotación Y / yaw destornillador, ±360°) ---
+            const j6 = new BABYLON.TransformNode("J6_Wrist3", scene);
+            j6.parent = j5;
+            j6.position.y = 0.35;
+
+            const flangeRing = BABYLON.MeshBuilder.CreateCylinder("flangeRing",
+                { diameter: 0.46, height: 0.18 }, scene);
+            flangeRing.material = matOrange;
+            flangeRing.parent = j6;
+            flangeRing.position.y = 0.05;
+
+            // ============ PINZA PARALELA (J7, Sección 8) ====================
+            // Base adaptadora, carrier alargado 1.05, guías laterales, dedos.
+            const gripperBase = BABYLON.MeshBuilder.CreateBox("gripperBase",
+                { width: 0.5, height: 0.15, depth: 0.4 }, scene);
+            gripperBase.material = matDarkGrey;
+            gripperBase.parent = j6;
+            gripperBase.position.y = 0.22;
+
+            const carrier = BABYLON.MeshBuilder.CreateBox("carrier",
+                { width: 1.05, height: 0.1, depth: 0.35 }, scene);
+            carrier.material = matMetal;
+            carrier.parent = j6;
+            carrier.position.y = 0.35;
+
+            const guideL = BABYLON.MeshBuilder.CreateBox("guideL",
+                { width: 0.12, height: 0.12, depth: 0.42 }, scene);
+            guideL.material = matDarkGrey;
+            guideL.parent = j6;
+            guideL.position = new BABYLON.Vector3(-0.5, 0.35, 0);
+
+            const guideR = BABYLON.MeshBuilder.CreateBox("guideR",
+                { width: 0.12, height: 0.12, depth: 0.42 }, scene);
+            guideR.material = matDarkGrey;
+            guideR.parent = j6;
+            guideR.position = new BABYLON.Vector3(0.5, 0.35, 0);
+
+            // Dedo izquierdo (0.08 x 0.6 x 0.2) + punta (0.1 x 0.15 x 0.22)
+            const leftFinger = BABYLON.MeshBuilder.CreateBox("leftFinger",
+                { width: 0.08, height: 0.6, depth: 0.2 }, scene);
+            leftFinger.material = matMetal;
+            leftFinger.parent = j6;
+            leftFinger.position = new BABYLON.Vector3(-0.48, 0.7, 0);
+
+            const leftTip = BABYLON.MeshBuilder.CreateBox("leftTip",
+                { width: 0.1, height: 0.15, depth: 0.22 }, scene);
+            leftTip.material = matDarkGrey;
+            leftTip.parent = leftFinger;
+            leftTip.position.y = -0.37;
+
+            const rightFinger = BABYLON.MeshBuilder.CreateBox("rightFinger",
+                { width: 0.08, height: 0.6, depth: 0.2 }, scene);
+            rightFinger.material = matMetal;
+            rightFinger.parent = j6;
+            rightFinger.position = new BABYLON.Vector3(0.48, 0.7, 0);
+
+            const rightTip = BABYLON.MeshBuilder.CreateBox("rightTip",
+                { width: 0.1, height: 0.15, depth: 0.22 }, scene);
+            rightTip.material = matDarkGrey;
+            rightTip.parent = rightFinger;
+            rightTip.position.y = -0.37;
+
+            // Registrar meshes para sombras
+            scene.meshes.forEach(m => {
+                if (m !== ground) shadowGen.addShadowCaster(m);
+            });
+
+            // -------- Nodo TCP (Tool Center Point) [B2] (Sección 6) ---------
+            const tcp = new BABYLON.TransformNode("TCP", scene);
+            tcp.parent = j6;
+            tcp.position = new BABYLON.Vector3(0, 1.3, 0); // punta de los dedos
+
+            // ================ ESTADO DEL ROBOT ==============================
+            const joints = [j1, j2, j3, j4, j5, j6];
+
+            // Rangos en radianes (tabla Sección 3)
+            const limitsDeg = [170, 120, 170, 120, 120, 360];
+            const limits = limitsDeg.map(D2R);
+
+            // Eje de rotación por articulación: Y,Z,Z,X,Z,Y
+            const rotAxes = ["y", "z", "z", "x", "z", "y"];
+
+            // Posiciones actuales y objetivos
+            const currents = [0, 0, 0, 0, 0, 0];
+            const targets  = [0, 0, 0, 0, 0, 0];
+
+            // Pinza: rango de apertura normalizado 0..1
+            //   0 => 0.08 u entre dedos (cerrado), 1 => 0.88 u (abierto)
+            const gripperMinOpening = 0.08;
+            const gripperMaxOpening = 0.88;
+            let gripperCurrent = 0.5;   // posición inicial: 50%
+            let gripperTarget  = 0.5;
+
+            // ------- Perfil de movimiento trapezoidal (Sección 5) -----------
+            const velocities = [0, 0, 0, 0, 0, 0];  // rad/s por articulación
+            let gripperVelocity = 0;                // u/s de la pinza
+
+            const ACCEL = 15;   // rampa de subida
+            const VMAX  = 4;    // velocidad crucero tope
+            const DECEL = 20;   // frenado (llegada firme)
+
+            const G_ACCEL = 15; // pinza unificada con articulaciones
+            const G_VMAX  = 4;
+            const G_DECEL = 20;
+
+            const SNAP = 0.0020; // umbral de snap final (~0.11°)
+
+            // ---------------- Presets (Sección 4.4) -------------------------
+            // Ángulos en grados [J1..J6] + apertura normalizada de pinza
+            const presets = {
+                F1: { name: "Posición Inicial", angles: [-20, -30, -60, 0, -90, 0],  gripper: 0.5 },
+                F2: { name: "Posición 2",       angles: [35, 10, 105, 0, -25, 90],   gripper: 0.5 },
+                F3: { name: "Posición 3",       angles: [-45, 30, 115, 0, -55, 90],  gripper: 1.0 },
+                F4: { name: "Posición 4",       angles: [-75, 30, 75, -60, -25, -90],gripper: 1.0 },
+                R:  { name: "Reset (Home)",     angles: [0, 0, 0, 0, 0, 0],          gripper: 0.5 }
+            };
+
+            function applyPreset(key) {
+                const p = presets[key];
+                if (!p) return;
+                for (let i = 0; i < 6; i++) {
+                    targets[i] = BABYLON.Scalar.Clamp(D2R(p.angles[i]), -limits[i], limits[i]);
+                }
+                gripperTarget = p.gripper;
+                hudStatus(p.name);
+            }
+
+            // =============== INPUT MANAGER (Sección 4) ======================
+            // Mapa de control data-driven [B1]: e.code -> lista de acciones
+            const KEY_MAP = {
+                Digit1: [{ j: 0, axis: "x" }],
+                Digit2: [{ j: 1, axis: "y" }],
+                Digit3: [{ j: 2, axis: "y" }],
+                Digit4: [{ j: 3, axis: "x" }],
+                Digit5: [{ j: 4, axis: "y" }],
+                Digit6: [{ j: 5, axis: "x" }],
+                Digit7: [{ g: true, axis: "y", scale: 2 }],
+                KeyZ:   [{ j: 0, axis: "x" }, { j: 1, axis: "y" }],
+                KeyX:   [{ j: 2, axis: "y" }],
+                KeyC:   [{ j: 3, axis: "x" }, { j: 4, axis: "y" }],
+                KeyV:   [{ j: 5, axis: "x" }, { g: true, axis: "y", scale: 2 }]
+            };
+
+            // Teclas presionadas: se almacena e.code (no e.key) — corrección
+            // del bug Shift+número (Sección 4.6): Shift+1 daría "!" con e.key.
+            const keysPressed = new Set();
+
+            window.addEventListener("keydown", (e) => {
+                keysPressed.add(e.code);
+                // Presets: F1-F4 y R
+                switch (e.code) {
+                    case "F1": e.preventDefault(); applyPreset("F1"); break;
+                    case "F2": e.preventDefault(); applyPreset("F2"); break;
+                    case "F3": e.preventDefault(); applyPreset("F3"); break;
+                    case "F4": e.preventDefault(); applyPreset("F4"); break;
+                    case "KeyR": applyPreset("R"); break; // [B3] R independiente de F1
+                }
+            });
+            window.addEventListener("keyup", (e) => keysPressed.delete(e.code));
+
+            // [A1] Robustez: limpiar teclas al perder el foco (evita "teclas pegadas")
+            window.addEventListener("blur", () => keysPressed.clear());
+
+            // Ratón como joystick analógico: deltas, no posición absoluta.
+            let mouseDX = 0, mouseDY = 0;
+            window.addEventListener("mousemove", (evt) => {
+                // Conflicto cámara/robot resuelto: solo capturar deltas SIN botones.
+                // Así clic+arrastrar orbita la cámara sin mover el robot.
+                if (evt.buttons === 0) {
+                    mouseDX += evt.movementX || 0;
+                    mouseDY += evt.movementY || 0;
+                }
+            });
+
+            // [A3] Evitar zoom de página con Ctrl+rueda (la cámara sigue recibiéndolo)
+            canvas.addEventListener("wheel", (e) => {
+                if (e.ctrlKey) e.preventDefault();
+            }, { passive: false });
+
+            const sensitivity = 0.005;
+
+            // =============== HUD (Babylon.GUI, Sección 9) ===================
+            const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("HUD");
+
+            const panel = new BABYLON.GUI.StackPanel();
+            panel.width = "260px";
+            panel.paddingTop = "10px";
+            panel.horizontalAlignment = BABYLON.GUI.HorizontalAlignment.Right;
+            panel.verticalAlignment = BABYLON.GUI.VerticalAlignment.Top;
+            ui.addControl(panel);
+
+            const jointNames = ["J1 Base", "J2 Hombro", "J3 Codo", "J4 Muñeca 1",
+                                "J5 Muñeca 2", "J6 Muñeca 3"];
+            const hudLines = [];
+            for (let i = 0; i < 6; i++) {
+                const t = new BABYLON.GUI.TextBlock();
+                t.color = "white";
+                t.fontSize = 14;
+                t.text = jointNames[i] + ": 0.0°";
+                t.background = "rgba(0,0,0,0.55)";
+                t.paddingLeft = "8px";
+                t.height = "24px";
+                panel.addControl(t);
+                hudLines.push(t);
+            }
+            const gripLine = new BABYLON.GUI.TextBlock();
+            gripLine.color = "cyan";
+            gripLine.fontSize = 14;
+            gripLine.text = "J7 Pinza: 0.48 u";
+            gripLine.background = "rgba(0,0,0,0.55)";
+            gripLine.paddingLeft = "8px";
+            gripLine.height = "24px";
+            panel.addControl(gripLine);
+
+            const statusLine = new BABYLON.GUI.TextBlock();
+            statusLine.color = "#7fd4ff";
+            statusLine.fontSize = 13;
+            statusLine.text = "";
+            statusLine.background = "rgba(0,0,0,0.55)";
+            statusLine.paddingLeft = "8px";
+            statusLine.height = "22px";
+            panel.addControl(statusLine);
+
+            let statusTimer = null;
+            function hudStatus(msg) {
+                statusLine.text = "▶ " + msg;
+                if (statusTimer) clearTimeout(statusTimer);
+                statusTimer = setTimeout(() => { statusLine.text = ""; }, 2000);
+            }
+
+            const R2D = BABYLON.Tools.ToDegrees;
+            let hudAccum = 0; // [B4] throttle del HUD a ~10 Hz
+
+            // =============== BUCLE DE RENDERIZADO ===========================
+            scene.onBeforeRenderObservable.add(() => {
+                // [A2] Clamp de deltaTime: evita saltos tras cambiar de pestaña
+                const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
+                if (dt <= 0) return;
+
+                // ---- 1) Entrada: teclado (KEY_MAP) + deltas del ratón ----
+                // Modificadores de velocidad (Sección 4.3)
+                let speedMultiplier = 1.0;
+                if (keysPressed.has("ShiftLeft") || keysPressed.has("ShiftRight")) speedMultiplier = 0.25;
+                else if (keysPressed.has("ControlLeft") || keysPressed.has("ControlRight")) speedMultiplier = 2.0;
+                const effSensitivity = sensitivity * speedMultiplier;
+
+                const dx = mouseDX, dy = mouseDY;
+                mouseDX = 0; mouseDY = 0;
+
+                if ((Math.abs(dx) > 0.0001 || Math.abs(dy) > 0.0001) && keysPressed.size > 0) {
+                    // Acordes: todas las teclas activas aplican en el mismo frame
+                    for (const code of keysPressed) {
+                        const actions = KEY_MAP[code];
+                        if (!actions) continue;
+                        for (const act of actions) {
+                            const delta = (act.axis === "x" ? dx : dy) * effSensitivity * (act.scale || 1);
+                            if (act.g) {
+                                gripperTarget = BABYLON.Scalar.Clamp(gripperTarget + delta, 0, 1);
+                            } else {
+                                targets[act.j] = BABYLON.Scalar.Clamp(
+                                    targets[act.j] + delta, -limits[act.j], limits[act.j]);
+                            }
+                        }
+                    }
+                }
+
+                // ---- 2) Perfil trapezoidal por articulación (Sección 5) ----
+                for (let i = 0; i < 6; i++) {
+                    const error = targets[i] - currents[i];
+                    const dist = Math.abs(error);
+
+                    if (dist < SNAP) {
+                        currents[i] = targets[i];   // Snap final: llegada exacta
+                        velocities[i] = 0;
+                    } else {
+                        // Velocidad permitida por distancia restante (frenado √)
+                        const vBrake = Math.sqrt(2 * DECEL * dist);
+                        const vTarget = Math.sign(error) * Math.min(VMAX, vBrake);
+                        const dv = vTarget - velocities[i];
+                        // Fix speedingUp: verifica dirección antes de acelerar (evita rebotes)
+                        const speedingUp = (velocities[i] === 0) ||
+                            (Math.sign(velocities[i]) === Math.sign(vTarget) &&
+                             Math.abs(vTarget) > Math.abs(velocities[i]));
+                        const dvMax = (speedingUp ? ACCEL : DECEL) * dt;
+                        velocities[i] += Math.sign(dv) * Math.min(Math.abs(dv), dvMax);
+                        currents[i] += velocities[i] * dt;
+                    }
+                    // Límites de software (clamp físico)
+                    currents[i] = BABYLON.Scalar.Clamp(currents[i], -limits[i], limits[i]);
+                    joints[i].rotation[rotAxes[i]] = currents[i];
+                }
+
+                // ---- 3) Perfil trapezoidal de la pinza (G_* unificados) ----
+                {
+                    const error = gripperTarget - gripperCurrent;
+                    const dist = Math.abs(error);
+                    if (dist < SNAP) {
+                        gripperCurrent = gripperTarget;
+                        gripperVelocity = 0;
+                    } else {
+                        const vBrake = Math.sqrt(2 * G_DECEL * dist);
+                        const vTarget = Math.sign(error) * Math.min(G_VMAX, vBrake);
+                        const dv = vTarget - gripperVelocity;
+                        const speedingUp = (gripperVelocity === 0) ||
+                            (Math.sign(gripperVelocity) === Math.sign(vTarget) &&
+                             Math.abs(vTarget) > Math.abs(gripperVelocity));
+                        const dvMax = (speedingUp ? G_ACCEL : G_DECEL) * dt;
+                        gripperVelocity += Math.sign(dv) * Math.min(Math.abs(dv), dvMax);
+                        gripperCurrent += gripperVelocity * dt;
+                    }
+                    gripperCurrent = BABYLON.Scalar.Clamp(gripperCurrent, 0, 1);
+                }
+
+                // ---- 4) Cinemática directa de la pinza paralela (Sección 8) ----
+                // openingDistance = separación TOTAL entre dedos (0.08..0.88 u);
+                // cada dedo se traslada ±separación/2 respecto al eje central.
+                const openingDistance = BABYLON.Scalar.Lerp(gripperMinOpening, gripperMaxOpening, gripperCurrent);
+                leftFinger.position.x  = -openingDistance / 2;
+                rightFinger.position.x =  openingDistance / 2;
+
+                // ---- 5) HUD con throttle ~10 Hz [B4] ----
+                hudAccum += dt;
+                if (hudAccum >= 0.1) {
+                    hudAccum = 0;
+                    for (let i = 0; i < 6; i++) {
+                        hudLines[i].text = jointNames[i] + ": " + R2D(currents[i]).toFixed(1) + "°";
+                    }
+                    const openU = BABYLON.Scalar.Lerp(gripperMinOpening, gripperMaxOpening, gripperCurrent);
+                    gripLine.text = "J7 Pinza: " + openU.toFixed(2) + " u";
+                }
+            });
+
+            return scene;
+        };
+
+        // ---------------------------------------------------------------------
+        const scene = createScene();
+        engine.runRenderLoop(() => scene.render());
+        window.addEventListener("resize", () => engine.resize());
+    </script>
+</body>
+</html>
